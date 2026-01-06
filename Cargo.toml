@@ -1,0 +1,21 @@
+[package]
+name = "dashtable"
+description = "A concurrent raw hash table"
+version = "0.1.0"
+authors = ["Guillaume Endignoux <ggendx@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/gendx/dashtable"
+categories = ["concurrency", "algorithms", "data-structures"]
+keywords = ["concurrent", "hashmap", "container", "collection"]
+exclude = [".github/*"]
+edition = "2024"
+rust-version = "1.85.0"
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--generate-link-to-definition"]
+
+[dependencies]
+crossbeam-utils = "0.8.21"
+hashbrown = "0.16.1"
+lock_api = "0.4.14"
+parking_lot = "0.12.5"
