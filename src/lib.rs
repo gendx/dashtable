@@ -15,7 +15,8 @@ mod lock;
 
 use crossbeam_utils::CachePadded;
 use hashbrown::{HashTable, hash_table};
-use lock::{RwLock, RwLockWriteGuardDetached};
+use lock::{RwLock, RwLockReadGuardDetached, RwLockWriteGuardDetached};
+use std::ops::Deref;
 use std::sync::LazyLock;
 
 /// A concurrent raw hash table with items of type `T`.
@@ -74,6 +75,9 @@ impl<T> DashTable<T> {
     }
 
     /// Retrieves an entry for the given hash value.
+    ///
+    /// See also [`find()`](Self::find), which is more efficient if you don't
+    /// need to modify the entry.
     pub fn entry<'a>(
         &'a self,
         hash: u64,
@@ -91,6 +95,23 @@ impl<T> DashTable<T> {
             hash_table::Entry::Occupied(entry) => Entry::Occupied(OccupiedEntry { _guard, entry }),
             hash_table::Entry::Vacant(entry) => Entry::Vacant(VacantEntry { _guard, entry }),
         }
+    }
+
+    /// Returns a reference to a value if one matches the given hash.
+    ///
+    /// This is more efficient than using [`entry()`](Self::entry) as this only
+    /// uses a read lock.
+    pub fn find<'a>(&'a self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<Ref<'a, T>> {
+        let shard = self.determine_shard(hash as usize);
+        let guard = self.shards[shard].read();
+        // SAFETY: The data doesn't outlive the detached guard, as the guard is stored
+        // in the entry returned by this function, and the entry properly ties
+        // the guard's lifetime to the corresponding value.
+        let (_guard, shard) = unsafe { RwLockReadGuardDetached::detach_from(guard) };
+
+        shard
+            .find(hash, eq)
+            .map(|reference| Ref { _guard, reference })
     }
 
     /// Unconditionally inserts the given value for the given hash, without
@@ -115,6 +136,20 @@ impl<T> DashTable<T> {
     fn determine_shard(&self, hash: usize) -> usize {
         // Leave the high 7 bits for the HashBrown SIMD tag.
         (hash << 7) >> self.shift
+    }
+}
+
+/// Read-only reference to a value in a table.
+pub struct Ref<'a, T> {
+    _guard: RwLockReadGuardDetached<'a>,
+    reference: &'a T,
+}
+
+impl<'a, T> Deref for Ref<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.reference
     }
 }
 
