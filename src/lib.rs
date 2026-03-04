@@ -76,8 +76,12 @@ impl<T> DashTable<T> {
 
     /// Retrieves an entry for the given hash value.
     ///
-    /// See also [`find()`](Self::find), which is more efficient if you don't
-    /// need to modify the entry.
+    /// See also:
+    /// - [`entry_mut()`](Self::entry_mut), which is more efficient if you hold
+    ///   a mutable reference to this [`DashTable`], as it avoids acquiring
+    ///   locks,
+    /// - [`find()`](Self::find), which is more efficient if you don't need to
+    ///   modify the entry, as it only acquires a read lock.
     pub fn entry<'a>(
         &'a self,
         hash: u64,
@@ -94,6 +98,25 @@ impl<T> DashTable<T> {
         match shard.entry(hash, eq, hasher) {
             hash_table::Entry::Occupied(entry) => Entry::Occupied(OccupiedEntry { _guard, entry }),
             hash_table::Entry::Vacant(entry) => Entry::Vacant(VacantEntry { _guard, entry }),
+        }
+    }
+
+    /// Retrieves an entry for the given hash value.
+    ///
+    /// Contrary to [`entry()`](Self::entry), no lock is held internally because
+    /// this function already takes an exclusive mutable reference to this
+    /// [`DashTable`].
+    pub fn entry_mut<'a>(
+        &'a mut self,
+        hash: u64,
+        eq: impl FnMut(&T) -> bool,
+        hasher: impl Fn(&T) -> u64,
+    ) -> MutEntry<'a, T> {
+        let shard = self.determine_shard(hash as usize);
+        let table = self.shards[shard].get_mut();
+        match table.entry(hash, eq, hasher) {
+            hash_table::Entry::Occupied(entry) => MutEntry::Occupied(MutOccupiedEntry(entry)),
+            hash_table::Entry::Vacant(entry) => MutEntry::Vacant(MutVacantEntry(entry)),
         }
     }
 
@@ -116,6 +139,10 @@ impl<T> DashTable<T> {
 
     /// Unconditionally inserts the given value for the given hash, without
     /// checking whether an equivalent element already exists in the table.
+    ///
+    /// See also [`insert_unique_mut`](Self::insert_unique_mut), which is more
+    /// efficient if you hold a mutable reference to this [`DashTable`] as
+    /// it avoids acquiring locks.
     pub fn insert_unique<'a>(
         &'a self,
         hash: u64,
@@ -131,6 +158,24 @@ impl<T> DashTable<T> {
 
         let entry = shard.insert_unique(hash, value, hasher);
         OccupiedEntry { _guard, entry }
+    }
+
+    /// Unconditionally inserts the given value for the given hash, without
+    /// checking whether an equivalent element already exists in the table.
+    ///
+    /// Contrary to [`insert_unique()`](Self::insert_unique), no lock is held
+    /// internally because this function already takes an exclusive mutable
+    /// reference to this [`DashTable`].
+    pub fn insert_unique_mut<'a>(
+        &'a mut self,
+        hash: u64,
+        value: T,
+        hasher: impl Fn(&T) -> u64,
+    ) -> MutOccupiedEntry<'a, T> {
+        let shard = self.determine_shard(hash as usize);
+        let table = self.shards[shard].get_mut();
+        let entry = table.insert_unique(hash, value, hasher);
+        MutOccupiedEntry(entry)
     }
 
     fn determine_shard(&self, hash: usize) -> usize {
@@ -198,5 +243,44 @@ impl<'a, T> VacantEntry<'a, T> {
             _guard: self._guard,
             entry: self.entry.insert(value),
         }
+    }
+}
+
+/// A view into a single entry in a mutable table, which may either be vacant or
+/// occupied.
+pub enum MutEntry<'a, T> {
+    /// The entry contains a value.
+    Occupied(MutOccupiedEntry<'a, T>),
+    /// The entry doesn't contain any value.
+    Vacant(MutVacantEntry<'a, T>),
+}
+
+impl<'a, T> MutEntry<'a, T> {
+    /// If this entry is vacant, inserts the given default value into it.
+    pub fn or_insert_with(self, default: impl FnOnce() -> T) -> MutOccupiedEntry<'a, T> {
+        match self {
+            MutEntry::Occupied(entry) => entry,
+            MutEntry::Vacant(entry) => entry.insert(default()),
+        }
+    }
+}
+
+/// An entry in a mutable hash table that contains a value.
+pub struct MutOccupiedEntry<'a, T>(hash_table::OccupiedEntry<'a, T>);
+
+impl<T> MutOccupiedEntry<'_, T> {
+    /// Obtains a reference to the corresponding value.
+    pub fn get(&self) -> &T {
+        self.0.get()
+    }
+}
+
+/// An entry in a mutable hash table that doesn't contain any value.
+pub struct MutVacantEntry<'a, T>(hash_table::VacantEntry<'a, T>);
+
+impl<'a, T> MutVacantEntry<'a, T> {
+    /// Inserts the given value into this entry.
+    pub fn insert(self, value: T) -> MutOccupiedEntry<'a, T> {
+        MutOccupiedEntry(self.0.insert(value))
     }
 }
