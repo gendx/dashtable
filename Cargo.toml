@@ -15,7 +15,7 @@ rust-version = "1.85.0"
 rustdoc-args = ["--generate-link-to-definition"]
 
 [dependencies]
-crossbeam-utils = "0.8.21"
-hashbrown = "0.16.1"
+crossbeam-utils = "0.8.22"
+hashbrown = "0.17.1"
 lock_api = "0.4.14"
 parking_lot = "0.12.5"
