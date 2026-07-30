@@ -121,6 +121,10 @@ impl<T> DashTable<T> {
     ///
     /// This is more efficient than using [`entry()`](Self::entry) as this only
     /// uses a read lock.
+    ///
+    /// See also [`find_mut`](Self::find_mut), which is more efficient if you
+    /// hold a mutable reference to this [`DashTable`] as it avoids acquiring
+    /// locks.
     pub fn find<'a>(&'a self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<Ref<'a, T>> {
         let shard = self.determine_shard(hash as usize);
         let guard = self.shards[shard].read();
@@ -132,6 +136,17 @@ impl<T> DashTable<T> {
         shard
             .find(hash, eq)
             .map(|reference| Ref { _guard, reference })
+    }
+
+    /// Returns a reference to a value if one matches the given hash.
+    ///
+    /// Contrary to [`find()`](Self::find), no lock is held internally because
+    /// this function already takes an exclusive mutable reference to this
+    /// [`DashTable`].
+    pub fn find_mut(&mut self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<&T> {
+        let shard = self.determine_shard(hash as usize);
+        let table = self.shards[shard].get_mut();
+        table.find(hash, eq)
     }
 
     /// Unconditionally inserts the given value for the given hash, without
