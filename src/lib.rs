@@ -114,10 +114,7 @@ impl<T> DashTable<T> {
     ) -> MutEntry<'a, T> {
         let shard = self.determine_shard(hash as usize);
         let table = self.shards[shard].get_mut();
-        match table.entry(hash, eq, hasher) {
-            hash_table::Entry::Occupied(entry) => MutEntry::Occupied(MutOccupiedEntry(entry)),
-            hash_table::Entry::Vacant(entry) => MutEntry::Vacant(MutVacantEntry(entry)),
-        }
+        table.entry(hash, eq, hasher)
     }
 
     /// Returns a reference to a value if one matches the given hash.
@@ -174,8 +171,7 @@ impl<T> DashTable<T> {
     ) -> MutOccupiedEntry<'a, T> {
         let shard = self.determine_shard(hash as usize);
         let table = self.shards[shard].get_mut();
-        let entry = table.insert_unique(hash, value, hasher);
-        MutOccupiedEntry(entry)
+        table.insert_unique(hash, value, hasher)
     }
 
     fn determine_shard(&self, hash: usize) -> usize {
@@ -248,39 +244,7 @@ impl<'a, T> VacantEntry<'a, T> {
 
 /// A view into a single entry in a mutable table, which may either be vacant or
 /// occupied.
-pub enum MutEntry<'a, T> {
-    /// The entry contains a value.
-    Occupied(MutOccupiedEntry<'a, T>),
-    /// The entry doesn't contain any value.
-    Vacant(MutVacantEntry<'a, T>),
-}
-
-impl<'a, T> MutEntry<'a, T> {
-    /// If this entry is vacant, inserts the given default value into it.
-    pub fn or_insert_with(self, default: impl FnOnce() -> T) -> MutOccupiedEntry<'a, T> {
-        match self {
-            MutEntry::Occupied(entry) => entry,
-            MutEntry::Vacant(entry) => entry.insert(default()),
-        }
-    }
-}
+pub type MutEntry<'a, T> = hash_table::Entry<'a, T>;
 
 /// An entry in a mutable hash table that contains a value.
-pub struct MutOccupiedEntry<'a, T>(hash_table::OccupiedEntry<'a, T>);
-
-impl<T> MutOccupiedEntry<'_, T> {
-    /// Obtains a reference to the corresponding value.
-    pub fn get(&self) -> &T {
-        self.0.get()
-    }
-}
-
-/// An entry in a mutable hash table that doesn't contain any value.
-pub struct MutVacantEntry<'a, T>(hash_table::VacantEntry<'a, T>);
-
-impl<'a, T> MutVacantEntry<'a, T> {
-    /// Inserts the given value into this entry.
-    pub fn insert(self, value: T) -> MutOccupiedEntry<'a, T> {
-        MutOccupiedEntry(self.0.insert(value))
-    }
-}
+pub type MutOccupiedEntry<'a, T> = hash_table::OccupiedEntry<'a, T>;
