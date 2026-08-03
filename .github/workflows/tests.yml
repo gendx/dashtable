@@ -19,5 +19,9 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
 
-      - name: Run tests
+      - name: Run tests (default features)
         run: cargo test --release --verbose --all
+      - name: Run tests (no default features)
+        run: cargo test --release --verbose --all --no-default-features
+      - name: Run tests (all features)
+        run: cargo test --release --verbose --all --all-features

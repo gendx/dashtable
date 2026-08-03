@@ -10,10 +10,13 @@
     clippy::multiple_unsafe_ops_per_block,
     clippy::undocumented_unsafe_blocks
 )]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod lock;
 
 use crossbeam_utils::CachePadded;
+#[cfg(feature = "get-size2")]
+use get_size2::{GetSize, GetSizeTracker};
 use hashbrown::{HashTable, hash_table};
 use lock::{RwLock, RwLockReadGuardDetached, RwLockWriteGuardDetached};
 use std::ops::Deref;
@@ -37,6 +40,24 @@ fn default_shard_shift() -> u32 {
 impl<T> Default for DashTable<T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(feature = "get-size2")]
+impl<T: GetSize> GetSize for DashTable<T> {
+    fn get_heap_size_with_tracker<Tr: GetSizeTracker>(&self, tracker: Tr) -> (usize, Tr) {
+        let (size, tracker) = self
+            .shards
+            .iter()
+            .fold((0, tracker), |(size, tracker), table| {
+                let (table_size, tracker) =
+                    HashTable::get_size_with_tracker(table.read().deref(), tracker);
+                (size + table_size, tracker)
+            });
+
+        let allocation_size =
+            self.shards.len() * std::mem::size_of::<CachePadded<RwLock<HashTable<T>>>>();
+        (size + allocation_size, tracker)
     }
 }
 
