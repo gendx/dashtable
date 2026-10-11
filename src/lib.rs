@@ -255,10 +255,24 @@ pub struct OccupiedEntry<'a, T> {
     entry: hash_table::OccupiedEntry<'a, T>,
 }
 
-impl<T> OccupiedEntry<'_, T> {
+impl<'a, T> OccupiedEntry<'a, T> {
     /// Obtains a reference to the corresponding value.
     pub fn get(&self) -> &T {
         self.entry.get()
+    }
+
+    /// Removes the value out of the entry, and returns it along with a
+    /// [`VacantEntry`] that can be used to insert another value with the same
+    /// hash.
+    pub fn remove(self) -> (T, VacantEntry<'a, T>) {
+        let (t, entry) = self.entry.remove();
+        (
+            t,
+            VacantEntry {
+                _guard: self._guard,
+                entry,
+            },
+        )
     }
 }
 
