@@ -111,9 +111,9 @@ impl<T> DashTable<T> {
     ) -> Entry<'a, T> {
         let shard = self.determine_shard(hash as usize);
         let guard = self.shards[shard].write();
-        // SAFETY: The data doesn't outlive the detached guard, as the guard is stored
-        // in the entry returned by this function, and the entry properly ties
-        // the guard's lifetime to the corresponding value.
+        // SAFETY: The data doesn't outlive the detached guard, as the guard is
+        // stored in the entry returned by this function, and the entry properly
+        // ties the guard's lifetime to the corresponding value.
         let (_guard, shard) = unsafe { RwLockWriteGuardDetached::detach_from(guard) };
 
         match shard.entry(hash, eq, hasher) {
@@ -149,9 +149,9 @@ impl<T> DashTable<T> {
     pub fn find<'a>(&'a self, hash: u64, eq: impl FnMut(&T) -> bool) -> Option<Ref<'a, T>> {
         let shard = self.determine_shard(hash as usize);
         let guard = self.shards[shard].read();
-        // SAFETY: The data doesn't outlive the detached guard, as the guard is stored
-        // in the entry returned by this function, and the entry properly ties
-        // the guard's lifetime to the corresponding value.
+        // SAFETY: The data doesn't outlive the detached guard, as the guard is
+        // stored in the entry returned by this function, and the entry properly
+        // ties the guard's lifetime to the corresponding value.
         let (_guard, shard) = unsafe { RwLockReadGuardDetached::detach_from(guard) };
 
         shard
@@ -184,9 +184,9 @@ impl<T> DashTable<T> {
     ) -> OccupiedEntry<'a, T> {
         let shard = self.determine_shard(hash as usize);
         let guard = self.shards[shard].write();
-        // SAFETY: The data doesn't outlive the detached guard, as the guard is stored
-        // in the entry returned by this function, and the entry properly ties
-        // the guard's lifetime to the corresponding value.
+        // SAFETY: The data doesn't outlive the detached guard, as the guard is
+        // stored in the entry returned by this function, and the entry properly
+        // ties the guard's lifetime to the corresponding value.
         let (_guard, shard) = unsafe { RwLockWriteGuardDetached::detach_from(guard) };
 
         let entry = shard.insert_unique(hash, value, hasher);

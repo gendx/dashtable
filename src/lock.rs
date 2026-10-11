@@ -20,7 +20,7 @@ mod detail {
 
     impl<R: RawRwLock> Drop for RwLockReadGuardDetached<'_, R> {
         fn drop(&mut self) {
-            // Safety: An RwLockReadGuardDetached always holds a shared lock.
+            // SAFETY: An RwLockReadGuardDetached always holds a shared lock.
             unsafe {
                 self.lock.unlock_shared();
             }
@@ -35,12 +35,12 @@ mod detail {
         /// The data must not outlive the detached guard
         pub(crate) unsafe fn detach_from<T>(guard: RwLockReadGuard<'a, R, T>) -> (Self, &'a T) {
             let rwlock = RwLockReadGuard::rwlock(&ManuallyDrop::new(guard));
-            // Safety: There will be no concurrent writes as we are "forgetting" the
-            // existing guard, with the safety assumption that the caller will
-            // not drop the new detached guard early.
+            // SAFETY: There will be no concurrent writes as we are "forgetting"
+            // the existing guard, with the safety assumption that the caller
+            // will not drop the new detached guard early.
             let data = unsafe { &*rwlock.data_ptr() };
             let guard = RwLockReadGuardDetached {
-                // Safety: We are imitating the original RwLockReadGuard. It's the callers
+                // SAFETY: We are imitating the original RwLockReadGuard. It's the caller's
                 // responsibility to not drop the guard early.
                 lock: unsafe { rwlock.raw() },
                 _marker: PhantomData,
@@ -57,7 +57,8 @@ mod detail {
 
     impl<R: RawRwLock> Drop for RwLockWriteGuardDetached<'_, R> {
         fn drop(&mut self) {
-            // Safety: An RwLockWriteGuardDetached always holds an exclusive lock.
+            // SAFETY: An RwLockWriteGuardDetached always holds an exclusive
+            // lock.
             unsafe {
                 self.lock.unlock_exclusive();
             }
@@ -74,12 +75,12 @@ mod detail {
             guard: RwLockWriteGuard<'a, R, T>,
         ) -> (Self, &'a mut T) {
             let rwlock = RwLockWriteGuard::rwlock(&ManuallyDrop::new(guard));
-            // Safety: There will be no concurrent reads/writes as we are "forgetting" the
-            // existing guard, with the safety assumption that the caller will
-            // not drop the new detached guard early.
+            // SAFETY: There will be no concurrent reads/writes as we are
+            // "forgetting" the existing guard, with the safety assumption that
+            // the caller will not drop the new detached guard early.
             let data = unsafe { &mut *rwlock.data_ptr() };
             let guard = RwLockWriteGuardDetached {
-                // Safety: We are imitating the original RwLockWriteGuard. It's the callers
+                // SAFETY: We are imitating the original RwLockWriteGuard. It's the caller's
                 // responsibility to not drop the guard early.
                 lock: unsafe { rwlock.raw() },
                 _marker: PhantomData,
