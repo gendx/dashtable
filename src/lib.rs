@@ -22,19 +22,29 @@ use lock::{RwLock, RwLockReadGuardDetached, RwLockWriteGuardDetached};
 use std::ops::Deref;
 use std::sync::LazyLock;
 
+fn default_shard_shift() -> u32 {
+    static DEFAULT_SHARD_SHIFT: LazyLock<u32> =
+        LazyLock::new(|| shard_shift(std::thread::available_parallelism().map_or(1, usize::from)));
+    *DEFAULT_SHARD_SHIFT
+}
+
+fn shard_shift(parallelism: usize) -> u32 {
+    if parallelism == 0 {
+        1
+    } else {
+        ((parallelism.saturating_mul(4) - 1).ilog2() + 1).min(usize::BITS - 1)
+    }
+}
+
+fn capacity_per_shard(capacity: usize, shard_shift: u32) -> usize {
+    let shard_amount = 1 << shard_shift;
+    capacity.div_ceil(shard_amount)
+}
+
 /// A concurrent raw hash table with items of type `T`.
 pub struct DashTable<T> {
     shift: u32,
     shards: Box<[CachePadded<RwLock<HashTable<T>>>]>,
-}
-
-fn default_shard_shift() -> u32 {
-    static DEFAULT_SHARD_SHIFT: LazyLock<u32> = LazyLock::new(|| {
-        (std::thread::available_parallelism().map_or(1, usize::from) * 4)
-            .next_power_of_two()
-            .ilog2()
-    });
-    *DEFAULT_SHARD_SHIFT
 }
 
 impl<T> Default for DashTable<T> {
@@ -66,6 +76,7 @@ impl<T> DashTable<T> {
     pub fn new() -> Self {
         let shard_shift = default_shard_shift();
         assert!(shard_shift > 0);
+        assert!(shard_shift < usize::BITS);
         let shard_amount = 1 << shard_shift;
 
         let shift = usize::BITS - shard_shift;
@@ -82,11 +93,12 @@ impl<T> DashTable<T> {
     pub fn with_capacity(capacity: usize) -> Self {
         let shard_shift = default_shard_shift();
         assert!(shard_shift > 0);
+        assert!(shard_shift < usize::BITS);
         let shard_amount = 1 << shard_shift;
 
         let shift = usize::BITS - shard_shift;
 
-        let cps = (capacity + (shard_amount - 1)) >> shard_shift;
+        let cps = capacity_per_shard(capacity, shard_shift);
 
         let shards = (0..shard_amount)
             .map(|_| CachePadded::new(RwLock::new(HashTable::with_capacity(cps))))
@@ -261,6 +273,11 @@ impl<'a, T> OccupiedEntry<'a, T> {
         self.entry.get()
     }
 
+    /// Obtains a mutable reference to the corresponding value.
+    pub fn get_mut(&mut self) -> &mut T {
+        self.entry.get_mut()
+    }
+
     /// Removes the value out of the entry, and returns it along with a
     /// [`VacantEntry`] that can be used to insert another value with the same
     /// hash.
@@ -298,3 +315,289 @@ pub type MutEntry<'a, T> = hash_table::Entry<'a, T>;
 
 /// An entry in a mutable hash table that contains a value.
 pub type MutOccupiedEntry<'a, T> = hash_table::OccupiedEntry<'a, T>;
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::hash::{BuildHasher, RandomState};
+    use std::thread;
+
+    #[test]
+    fn test_shard_shift() {
+        assert_eq!(shard_shift(0), 1);
+        assert_eq!(shard_shift(1), 2);
+        assert_eq!(shard_shift(2), 3);
+        assert_eq!(shard_shift(3), 4);
+        assert_eq!(shard_shift(4), 4);
+        assert_eq!(shard_shift(5), 5);
+        assert_eq!(shard_shift(6), 5);
+        assert_eq!(shard_shift(7), 5);
+        assert_eq!(shard_shift(8), 5);
+        assert_eq!(shard_shift(9), 6);
+        assert_eq!(shard_shift(10), 6);
+        assert_eq!(shard_shift(usize::MAX), usize::BITS - 1);
+    }
+
+    #[test]
+    fn test_capacity_per_shard() {
+        assert_eq!(capacity_per_shard(0, 2), 0);
+        assert_eq!(capacity_per_shard(1, 2), 1);
+        assert_eq!(capacity_per_shard(2, 2), 1);
+        assert_eq!(capacity_per_shard(3, 2), 1);
+        assert_eq!(capacity_per_shard(4, 2), 1);
+        assert_eq!(capacity_per_shard(5, 2), 2);
+        assert_eq!(capacity_per_shard(42, 2), 11);
+        assert_eq!(capacity_per_shard(usize::MAX, 2), 1 << (usize::BITS - 2));
+    }
+
+    const NUM_READERS: usize = 4;
+    const NUM_WRITERS: usize = 4;
+    #[cfg(not(miri))]
+    const NUM_ITEMS: usize = 100_000;
+    #[cfg(miri)]
+    const NUM_ITEMS: usize = 100;
+
+    #[test]
+    fn test_insert_unique() {
+        let mut table = DashTable::default();
+        let hasher = RandomState::default();
+
+        thread::scope(|s| {
+            let table = &table;
+            let hasher = &hasher;
+            for i in 0..NUM_WRITERS {
+                s.spawn(move || {
+                    for j in 0..NUM_ITEMS {
+                        let value = i * NUM_ITEMS + j;
+                        assert_eq!(
+                            *table
+                                .insert_unique(hasher.hash_one(value), value, |&x| {
+                                    hasher.hash_one(x)
+                                })
+                                .get(),
+                            value,
+                        );
+                    }
+                });
+            }
+        });
+
+        for value in 0..NUM_WRITERS * NUM_ITEMS {
+            assert_eq!(
+                table.find_mut(hasher.hash_one(value), |&x| x == value),
+                Some(&value)
+            );
+        }
+    }
+
+    #[test]
+    fn test_with_capacity_insert_unique() {
+        let mut table = DashTable::with_capacity(NUM_WRITERS * NUM_ITEMS);
+        let hasher = RandomState::default();
+
+        thread::scope(|s| {
+            let table = &table;
+            let hasher = &hasher;
+            for i in 0..NUM_WRITERS {
+                s.spawn(move || {
+                    for j in 0..NUM_ITEMS {
+                        let value = i * NUM_ITEMS + j;
+                        assert_eq!(
+                            *table
+                                .insert_unique(hasher.hash_one(value), value, |&x| {
+                                    hasher.hash_one(x)
+                                })
+                                .get(),
+                            value,
+                        );
+                    }
+                });
+            }
+        });
+
+        for value in 0..NUM_WRITERS * NUM_ITEMS {
+            assert_eq!(
+                table.find_mut(hasher.hash_one(value), |&x| x == value),
+                Some(&value)
+            );
+        }
+    }
+
+    #[test]
+    fn test_entry_or_insert_with() {
+        let mut table: DashTable<(usize, usize)> = DashTable::default();
+        let hasher = RandomState::default();
+
+        thread::scope(|s| {
+            let table = &table;
+            let hasher = &hasher;
+            for _ in 0..NUM_WRITERS {
+                s.spawn(move || {
+                    for value in 0..NUM_ITEMS {
+                        table
+                            .entry(
+                                hasher.hash_one(value),
+                                |x| x.0 == value,
+                                |x| hasher.hash_one(x.0),
+                            )
+                            .or_insert_with(|| (value, 0))
+                            .get_mut()
+                            .1 += 1;
+                    }
+                });
+            }
+        });
+
+        for value in 0..NUM_ITEMS {
+            assert_eq!(
+                table.find_mut(hasher.hash_one(value), |x| x.0 == value),
+                Some(&(value, NUM_WRITERS))
+            );
+        }
+    }
+
+    #[test]
+    fn test_entry_remove() {
+        let mut table = DashTable::default();
+        let hasher = RandomState::default();
+
+        for value in 0..NUM_ITEMS {
+            assert_eq!(
+                *table
+                    .insert_unique_mut(hasher.hash_one(value), value, |&x| { hasher.hash_one(x) })
+                    .get(),
+                value
+            );
+        }
+
+        thread::scope(|s| {
+            let table = &table;
+            let hasher = &hasher;
+            for _ in 0..NUM_WRITERS {
+                s.spawn(move || {
+                    for value in 0..NUM_ITEMS {
+                        if let Entry::Occupied(entry) = table.entry(
+                            hasher.hash_one(value),
+                            |&x| x == value,
+                            |&x| hasher.hash_one(x),
+                        ) {
+                            assert_eq!(entry.remove().0, value);
+                        }
+                    }
+                });
+            }
+        });
+
+        for value in 0..NUM_ITEMS {
+            assert_eq!(
+                table.find_mut(hasher.hash_one(value), |&x| x == value),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn test_entry_mut() {
+        let mut table: DashTable<(usize, usize)> = DashTable::default();
+        let hasher = RandomState::default();
+
+        for _ in 0..NUM_WRITERS {
+            for value in 0..NUM_ITEMS {
+                table
+                    .entry_mut(
+                        hasher.hash_one(value),
+                        |x| x.0 == value,
+                        |x| hasher.hash_one(x.0),
+                    )
+                    .or_insert_with(|| (value, 0))
+                    .get_mut()
+                    .1 += 1;
+            }
+        }
+
+        for value in 0..NUM_ITEMS {
+            assert_eq!(
+                table.find_mut(hasher.hash_one(value), |x| x.0 == value),
+                Some(&(value, NUM_WRITERS))
+            );
+        }
+    }
+
+    #[test]
+    fn test_find() {
+        let mut table = DashTable::default();
+        let hasher = RandomState::default();
+
+        for value in 0..NUM_ITEMS {
+            assert_eq!(
+                *table
+                    .insert_unique_mut(hasher.hash_one(value), value, |&x| { hasher.hash_one(x) })
+                    .get(),
+                value
+            );
+        }
+
+        thread::scope(|s| {
+            let table = &table;
+            let hasher = &hasher;
+            for _ in 0..NUM_READERS {
+                s.spawn(move || {
+                    for value in 0..NUM_ITEMS {
+                        assert_eq!(
+                            table
+                                .find(hasher.hash_one(value), |&x| x == value)
+                                .as_deref(),
+                            Some(&value)
+                        );
+                    }
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn test_concurrent_insert_unique_find() {
+        let mut table: DashTable<usize> = DashTable::default();
+        let hasher = RandomState::default();
+
+        thread::scope(|s| {
+            let table = &table;
+            let hasher = &hasher;
+            for _ in 0..NUM_READERS {
+                s.spawn(move || {
+                    'outer: loop {
+                        for value in 0..NUM_WRITERS * NUM_ITEMS {
+                            match table.find(hasher.hash_one(value), |&x| x == value) {
+                                None => continue 'outer,
+                                Some(v) => assert_eq!(*v.deref(), value),
+                            }
+                        }
+                        break;
+                    }
+                });
+            }
+            for i in 0..NUM_WRITERS {
+                s.spawn(move || {
+                    for j in 0..NUM_ITEMS {
+                        let value = i * NUM_ITEMS + j;
+                        assert_eq!(
+                            *table
+                                .insert_unique(hasher.hash_one(value), value, |&x| {
+                                    hasher.hash_one(x)
+                                })
+                                .get(),
+                            value,
+                        );
+                    }
+                });
+            }
+        });
+
+        for value in 0..NUM_WRITERS * NUM_ITEMS {
+            assert_eq!(
+                table.find_mut(hasher.hash_one(value), |&x| x == value),
+                Some(&value)
+            );
+        }
+    }
+}

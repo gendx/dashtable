@@ -40,8 +40,8 @@ mod detail {
             // will not drop the new detached guard early.
             let data = unsafe { &*rwlock.data_ptr() };
             let guard = RwLockReadGuardDetached {
-                // SAFETY: We are imitating the original RwLockReadGuard. It's the caller's
-                // responsibility to not drop the guard early.
+                // SAFETY: We are imitating the original RwLockReadGuard. It's
+                // the caller's responsibility to not drop the guard early.
                 lock: unsafe { rwlock.raw() },
                 _marker: PhantomData,
             };
@@ -80,8 +80,8 @@ mod detail {
             // the caller will not drop the new detached guard early.
             let data = unsafe { &mut *rwlock.data_ptr() };
             let guard = RwLockWriteGuardDetached {
-                // SAFETY: We are imitating the original RwLockWriteGuard. It's the caller's
-                // responsibility to not drop the guard early.
+                // SAFETY: We are imitating the original RwLockWriteGuard. It's
+                // the caller's responsibility to not drop the guard early.
                 lock: unsafe { rwlock.raw() },
                 _marker: PhantomData,
             };
