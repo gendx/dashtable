@@ -2,7 +2,7 @@
 
 [![Crate](https://img.shields.io/crates/v/dashtable.svg?logo=rust)](https://crates.io/crates/dashtable)
 [![Documentation](https://img.shields.io/docsrs/dashtable?logo=rust)](https://docs.rs/dashtable)
-[![Minimum Rust 1.85.0](https://img.shields.io/badge/rust-1.85.0%2B-orange.svg?logo=rust)](https://releases.rs/docs/1.85.0/)
+[![Minimum Rust 1.95.0](https://img.shields.io/badge/rust-1.95.0%2B-orange.svg?logo=rust)](https://releases.rs/docs/1.95.0/)
 [![Lines of Code](https://www.aschey.tech/tokei/github/gendx/dashtable?category=code&branch=main)](https://github.com/gendx/dashtable)
 [![Dependencies](https://deps.rs/repo/github/gendx/dashtable/status.svg)](https://deps.rs/repo/github/gendx/dashtable)
 [![License](https://img.shields.io/crates/l/dashtable.svg)](https://github.com/gendx/dashtable/blob/main/LICENSE)

@@ -126,7 +126,7 @@ impl<T> DashTable<T> {
         // SAFETY: The data doesn't outlive the detached guard, as the guard is
         // stored in the entry returned by this function, and the entry properly
         // ties the guard's lifetime to the corresponding value.
-        let (_guard, shard) = unsafe { RwLockWriteGuardDetached::detach_from(guard) };
+        let (_guard, shard) = unsafe { guard.detach() };
 
         match shard.entry(hash, eq, hasher) {
             hash_table::Entry::Occupied(entry) => Entry::Occupied(OccupiedEntry { _guard, entry }),
@@ -164,7 +164,7 @@ impl<T> DashTable<T> {
         // SAFETY: The data doesn't outlive the detached guard, as the guard is
         // stored in the entry returned by this function, and the entry properly
         // ties the guard's lifetime to the corresponding value.
-        let (_guard, shard) = unsafe { RwLockReadGuardDetached::detach_from(guard) };
+        let (_guard, shard) = unsafe { guard.detach() };
 
         shard
             .find(hash, eq)
@@ -199,7 +199,7 @@ impl<T> DashTable<T> {
         // SAFETY: The data doesn't outlive the detached guard, as the guard is
         // stored in the entry returned by this function, and the entry properly
         // ties the guard's lifetime to the corresponding value.
-        let (_guard, shard) = unsafe { RwLockWriteGuardDetached::detach_from(guard) };
+        let (_guard, shard) = unsafe { guard.detach() };
 
         let entry = shard.insert_unique(hash, value, hasher);
         OccupiedEntry { _guard, entry }
