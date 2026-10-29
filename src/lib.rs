@@ -144,7 +144,7 @@ impl<T> DashTable<T> {
         hash: u64,
         eq: impl FnMut(&T) -> bool,
         hasher: impl Fn(&T) -> u64,
-    ) -> MutEntry<'a, T> {
+    ) -> EntryMut<'a, T> {
         let shard = self.determine_shard(hash as usize);
         let table = self.shards[shard].get_mut();
         table.entry(hash, eq, hasher)
@@ -216,7 +216,7 @@ impl<T> DashTable<T> {
         hash: u64,
         value: T,
         hasher: impl Fn(&T) -> u64,
-    ) -> MutOccupiedEntry<'a, T> {
+    ) -> OccupiedEntryMut<'a, T> {
         let shard = self.determine_shard(hash as usize);
         let table = self.shards[shard].get_mut();
         table.insert_unique(hash, value, hasher)
@@ -311,10 +311,10 @@ impl<'a, T> VacantEntry<'a, T> {
 
 /// A view into a single entry in a mutable table, which may either be vacant or
 /// occupied.
-pub type MutEntry<'a, T> = hash_table::Entry<'a, T>;
+pub type EntryMut<'a, T> = hash_table::Entry<'a, T>;
 
 /// An entry in a mutable hash table that contains a value.
-pub type MutOccupiedEntry<'a, T> = hash_table::OccupiedEntry<'a, T>;
+pub type OccupiedEntryMut<'a, T> = hash_table::OccupiedEntry<'a, T>;
 
 #[cfg(test)]
 mod test {
